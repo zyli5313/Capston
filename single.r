@@ -1,13 +1,26 @@
 # single risky asset, replicate ctax paper
 
+
+# return mortality rate in age = [1, 100], filter 0,101,102
+get_mortality_rate_vec = function() {
+	life_len_raw = read.table("mortality_rate_1980.txt", header=TRUE)
+	life_len = c(0.5 * (life_len_raw[ , 2] + life_len_raw[ , 3]), 
+							0.5 * (life_len_raw[ , 5] + life_len_raw[ , 6]), 
+							0.5 * (life_len_raw[ , 8] + life_len_raw[ , 9]) )
+
+	morta_rate = 1 - life_len[-c(length(life_len))] / (life_len[-c(1)] + 1)
+	morta_rate = morta_rate[1:100]
+
+	return(morta_rate)
+}
+
 #--- constant ---
 # NDIM = 500
-# NTIMEUP = 100
-# NTIMELOW = 20
+# NTIMEUP = 80
+# STEP = 10
 
 NDIM = 3
 NTIMEUP = 4
-NTIMELOW = 1
 STEP = 10
 
 #--- parameters ---
@@ -25,59 +38,66 @@ rstar = ((1-tau_d) * r - i) / (1 + i) # after tax real bond return
 A_H = (rstar * (1+rstar)^H) / ((1+rstar)^H - 1) 
 
 # states xt
-s = seq(0, 1.0, by=NDIM)
-pstar = seq(0, 1.0, by=NDIM)
+s = seq(1/NDIM, 1.0, by=1/NDIM)
+pstar = seq(1/NDIM, 2.0, by=1/NDIM)
+
+s_size = length(s)
+pstar_size = length(pstar)
 
 # get mortality rate
 lambda = get_mortality_rate_vec()
 
-# main
+# --- main ---
+ptm = proc.time() # time all calculation
 # value function (0-NTIMELOW not used)
-v = array(0, dim=c(NDIM, NDIM, NTIMEUP))
+v = array(0, dim=c(s_size, pstar_size, NTIMEUP))
+
 # initialization
 v[ , , NTIMEUP] = (beta * (1-beta^H) * A_H^(1-gamma)) / ((1-beta) * (1-gamma))
 # vector to save optimal comsuption ratio
-c = array(0, dim=c(NDIM, NDIM, NTIMEUP))
+c = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 # vector to save equity ration in total wealth after time t
-f = array(0, dim=c(NDIM, NDIM, NTIMEUP))
+f = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 # vector to save bond ration in total wealth after time t
-b = array(0, dim=c(NDIM, NDIM, NTIMEUP))
+b = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 
 # TODO: not yet included eq 13
 # v[st][pstar_tm1][t]
-for(t in NTIMEUP-1:NTIMELOW) {
+for(t in seq(NTIMEUP-1, 1, by=-1)) {
 	lambdat = lambda[t]
 
 	# (scalar) E_t[v_{t+1}(x_{t+1})]
 	Et_vtp1 = mean(v[ , , t+1]);
 
-	for(is in s) {
-		for(ipstar in pstar) {
+	for(is in 1:length(s)) {
+		for(ipstar in 1:length(pstar)) {
 			# current states: st, pstar_tm1 (scalar)
 			st = s[is]
 			pstar_tm1 = pstar[ipstar]
 
+			# print(pstar_tm1)
+
 			# current policies: ft, bt, ct (vector)
-			curbase = seq(0, 1, by=1/STEP)
+			curbase = seq(1/STEP, 1, by=1/STEP)
 			# generate each posible (ft[i], bt[i]) pair. Can calculate ct[i] using eq 14
 			ft = rep(curbase, each=STEP)
 			bt = rep(curbase, times=STEP)
 			valid_idx = ft + bt <= 1
 			ft = ft[valid_idx]
 			bt = bt[valid_idx]
-			
-			# part 1
+
+			# part 1 vector
 			# calc ct
 			# (vector) fraction of beginning-of-period wealth that is taxable as realized capital gain in period t
-			deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * max(sf-ft, 0)) * (1 - pstar_tm1)
+			deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * max(st-ft, 0)) * (1 - pstar_tm1)
 			ct = 1 - tau_g * deltat - ft - bt
 			
 			res1 = exp(-lambdat) * ct^(1-gamma) / (1-gamma)
 
-			# part 2
+			# part 2 scalar
 			res2 = (1-exp(-lambdat) * beta * (1-beta^H) * A_H^(1-gamma)) / ((1-beta) * (1-gamma))
 
-			# part 3
+			# part 3 vector
 			# TODO: need to represent g_tp1
 			g_tp1 = 1 / pstar_tm1 - 1
 			# (vector) gross nomial return from t to t+1 (paid dividend tax, but not paid capital gain tax)
@@ -90,26 +110,43 @@ for(t in NTIMEUP-1:NTIMELOW) {
 
 			# update value function v
 			vt = res1 + res2 + res3
-			v[is][ipstar][t] = max(vt)
+			
+			# print(max(vt))
+			# print(ipstar)
+
+			# IMP: array indexing: v[i,j,k]. Not v[i][j][k]
+			v[is, ipstar, t] = max(vt)
 			# find the optimal policy
 			idx = which.max(vt)
-			f[is][ipstar][t] = ft[idx]
-			c[is][ipstar][t] = ct[idx]
-			b[is][ipstar][t] = bt[idx]
+			
+			f[is, ipstar, t] = ft[idx]
+			c[is, ipstar, t] = ct[idx]
+			b[is, ipstar, t] = bt[idx]
 		}
 	}
-	
+	print(t)
+	flush.console()
 }
 
-# return mortality rate in age = [1, 100], filter 0,101,102
-get_mortality_rate_vec = function() {
-	life_len_raw = read.table("mortality_rate_1980.txt", header=TRUE)
-	life_len = c(0.5 * (life_len_raw[ , 2] + life_len_raw[ , 3]), 
-							0.5 * (life_len_raw[ , 5] + life_len_raw[ , 6]), 
-							0.5 * (life_len_raw[ , 8] + life_len_raw[ , 9]) )
+all_time = proc.time() - ptm
 
-	morta_rate = 1 - life_len[-c(length(life_len))] / (life_len[-c(1)] + 1)
-	morta_rate = morta_rate[1:100]
+save(s, pstar, v, f, c, b, all_time, file="res.dat")
 
-	return(morta_rate)
-}
+# --- plot ---
+# library(rgl)
+# xvec = rep(s, each=pstar_size)
+# yvec = rep(pstar, times=s_size)
+# plot3d(xvec, yvec, v[ , , 1], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
+# lines3d(xvec, yvec, v[ , , 1], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
+
+# xvec = s
+# yvec = pstar
+# zmat = c[ , , 1]
+# zlim = range(zmat)
+# zlen = zlim[2] - zlim[1] + 1
+# colorlut = terrain.colors(zlen) # height color lookup table
+# col = colorlut[ zmat-zlim[1]+1 ] # assign colors to heights for each point
+# surface3d(xvec, yvec, zmat, color=col, back="lines", xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
+# decorate3d(main = "s-pstar-v", aspect=TRUE)
+# rgl.postscript( "s-pstar-v.eps", fmt="eps", drawText=TRUE )
+# rgl.snapshot("s-pstar-v.png", fmt="png", top=TRUE )
