@@ -17,10 +17,12 @@ get_mortality_rate_vec = function() {
 #--- constant ---
 # NDIM = 500
 # NTIMEUP = 80
+# NTIMELOW = 20
 # STEP = 10
 
 NDIM = 3
 NTIMEUP = 4
+NTIMELOW = 1
 STEP = 10
 
 #--- parameters ---
@@ -64,7 +66,7 @@ b = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 # TODO: not yet included eq 13
 # v[st][pstar_tm1][t]
 for(t in seq(NTIMEUP-1, 1, by=-1)) {
-	lambdat = lambda[t]
+	lambdat = lambda[t + NTIMELOW] # lambda range [1, 100]
 
 	# (scalar) E_t[v_{t+1}(x_{t+1})]
 	Et_vtp1 = mean(v[ , , t+1]);
