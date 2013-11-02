@@ -20,8 +20,8 @@ get_mortality_rate_vec = function() {
 # NTIMELOW = 20
 # STEP = 10
 
-NDIM = 3
-NTIMEUP = 4
+NDIM = 4
+NTIMEUP = 5
 NTIMELOW = 1
 STEP = 10
 
@@ -34,7 +34,7 @@ tau_d = 0.36 # tax rate on dividend and interest
 tau_g = 0.36 # tax rate on capital gain and losses
 beta = 0.96 # annual subjective discount factor
 gamma = 3.0 # risk aversion parameter
-H = NTIMEUP # num of period of annuity for the benefit of investor's beneficiary 
+H = NTIMEUP * 10 # num of period of annuity for the benefit of investor's beneficiary 
 
 rstar = ((1-tau_d) * r - i) / (1 + i) # after tax real bond return 
 A_H = (rstar * (1+rstar)^H) / ((1+rstar)^H - 1) 
@@ -62,6 +62,8 @@ c = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 f = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 # vector to save bond ration in total wealth after time t
 b = array(0, dim=c(s_size, pstar_size, NTIMEUP))
+# optimal stock holding
+optimal_stock_holding = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 
 # TODO: not yet included eq 13
 # v[st][pstar_tm1][t]
@@ -82,6 +84,8 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			# current policies: ft, bt, ct (vector)
 			curbase = seq(1/STEP, 1, by=1/STEP)
 			# generate each posible (ft[i], bt[i]) pair. Can calculate ct[i] using eq 14
+
+			# TODO ft == s_t+1! BUG!
 			ft = rep(curbase, each=STEP)
 			bt = rep(curbase, times=STEP)
 			valid_idx = ft + bt <= 1
@@ -93,11 +97,12 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			# (vector) fraction of beginning-of-period wealth that is taxable as realized capital gain in period t
 			deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * max(st-ft, 0)) * (1 - pstar_tm1)
 			ct = 1 - tau_g * deltat - ft - bt
-			
+			print(ct)
+
 			res1 = exp(-lambdat) * ct^(1-gamma) / (1-gamma)
 
 			# part 2 scalar
-			res2 = (1-exp(-lambdat) * beta * (1-beta^H) * A_H^(1-gamma)) / ((1-beta) * (1-gamma))
+			res2 = ((1-exp(-lambdat)) * beta * (1-beta^H) * A_H^(1-gamma)) / ((1-beta) * (1-gamma))
 
 			# part 3 vector
 			# TODO: need to represent g_tp1
@@ -124,6 +129,7 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			f[is, ipstar, t] = ft[idx]
 			c[is, ipstar, t] = ct[idx]
 			b[is, ipstar, t] = bt[idx]
+			optimal_stock_holding[is, ipstar, t] = ft[idx] / (ft[idx] + bt[idx])
 		}
 	}
 	print(t)
@@ -131,24 +137,11 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 }
 
 all_time = proc.time() - ptm
+print(all_time)
+save(s, pstar, v, f, c, b, optimal_stock_holding, file = "res_tiny.dat")
 
-save(s, pstar, v, f, c, b, all_time, file="res.dat")
 
 # --- plot ---
-# library(rgl)
-# xvec = rep(s, each=pstar_size)
-# yvec = rep(pstar, times=s_size)
-# plot3d(xvec, yvec, v[ , , 1], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
-# lines3d(xvec, yvec, v[ , , 1], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
+source("plot.r")
 
-# xvec = s
-# yvec = pstar
-# zmat = c[ , , 1]
-# zlim = range(zmat)
-# zlen = zlim[2] - zlim[1] + 1
-# colorlut = terrain.colors(zlen) # height color lookup table
-# col = colorlut[ zmat-zlim[1]+1 ] # assign colors to heights for each point
-# surface3d(xvec, yvec, zmat, color=col, back="lines", xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
-# decorate3d(main = "s-pstar-v", aspect=TRUE)
-# rgl.postscript( "s-pstar-v.eps", fmt="eps", drawText=TRUE )
-# rgl.snapshot("s-pstar-v.png", fmt="png", top=TRUE )
+

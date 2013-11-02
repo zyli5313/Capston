@@ -1,23 +1,46 @@
 # plot using saved data
 
-load("res.dat")
-#save(s, pstar, v, f, c, b, all_time, file="res.dat")
+NDIM = 500
+NTIMEUP = 80
+NTIMELOW = 20
+STEP = 10
+
+load("res_1026.dat")
+print("load done")
+# save(s, pstar, v, f, c, b, optimal_stock_holding, file = "res_tiny.dat")
 
 # --- plot ---
 library(rgl)
-# xvec = rep(s, each=pstar_size)
-# yvec = rep(pstar, times=s_size)
-# plot3d(xvec, yvec, v[ , , 1], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
-# lines3d(xvec, yvec, v[ , , 1], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
 
-xvec = s
-yvec = pstar
-zmat = c[ , , 1]
-zlim = range(zmat)
-zlen = zlim[2] - zlim[1] + 1
-colorlut = terrain.colors(zlen) # height color lookup table
-col = colorlut[ zmat-zlim[1]+1 ] # assign colors to heights for each point
-surface3d(xvec, yvec, zmat, color=col, back="lines", xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
-decorate3d(main = "s-pstar-v", aspect=TRUE)
-rgl.postscript( "s-pstar-v.eps", fmt="eps", drawText=TRUE )
-rgl.snapshot("s-pstar-v.png", fmt="png", top=TRUE )
+
+tvec = seq(1, NTIMEUP-1, by=1)
+s_idx = 1/4 / (1/NDIM)
+
+# xvec = rep(pstar, each=pstar_size)
+# yvec = rep(tvec, times=length(tvec))
+# plot3d(xvec, yvec, c[ s_idx, , tvec], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
+# lines3d(xvec, yvec, c[ s_idx, , tvec], xlab="s", ylab="pstar", zlab="v", box = TRUE, axes = TRUE)
+
+# --- optimal consumption policy ---
+# check zmat to determine x and y 
+# xvec_range = tvec
+# yvec_range = pstar
+# zmat = c[ s_idx, , tvec]
+# zmat = aperm(zmat)
+# persp3d(xvec_range, yvec_range, zmat, col = 'skyblue',aspect=TRUE, xlab="t", ylab="pstar", zlab="c", box = TRUE, axes = TRUE) 
+# surface3d(xvec_range, yvec_range, zmat, front="lines", back="lines")
+# # rgl.postscript( "t-pstar-c.eps", fmt="eps", drawText=TRUE )
+# rgl.snapshot("t-pstar-c.png", fmt="png", top=TRUE )
+
+# --- optimal stock holding ---
+xvec_range = tvec
+yvec_range = pstar
+zmat = optimal_stock_holding[s_idx, , tvec]
+zmat = aperm(zmat)
+persp3d(xvec_range, yvec_range, zmat, col = 'skyblue',aspect=TRUE, xlab="t", ylab="pstar", zlab="optimal_stock_holding", box = TRUE, axes = TRUE) 
+surface3d(xvec_range, yvec_range, zmat, front="lines", back="lines")
+# rgl.postscript( "t-pstar-optimal_stock_holding.eps", fmt="eps", drawText=TRUE )
+rgl.snapshot("t-pstar-optimal_stock_holding.png", fmt="png", top=TRUE )
+
+
+
