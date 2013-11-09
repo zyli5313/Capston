@@ -34,7 +34,10 @@ tau_d = 0.36 # tax rate on dividend and interest
 tau_g = 0.36 # tax rate on capital gain and losses
 beta = 0.96 # annual subjective discount factor
 gamma = 3.0 # risk aversion parameter
-H = NTIMEUP * 100 # num of period of annuity for the benefit of investor's beneficiary 
+# H very sensitive
+H = NTIMEUP   # num of period of annuity for the benefit of investor's beneficiary 
+g_H = 1 # up factor - 1 (pretax nomial capital gain return)
+g_T = -0.5 # down factor - 1 (pretax nomial capital gain return)
 
 rstar = ((1-tau_d) * r - i) / (1 + i) # after tax real bond return 
 A_H = (rstar * (1+rstar)^H) / ((1+rstar)^H - 1) 
@@ -72,8 +75,9 @@ optimal_stock_holding = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 for(t in seq(NTIMEUP-1, 1, by=-1)) {
 	lambdat = lambda[t + NTIMELOW] # lambda range [1, 100]
 
+	# wrong!
 	# (scalar) E_t[v_{t+1}(x_{t+1})]
-	Et_vtp1 = mean(v[ , , t+1]);
+	#Et_vtp1 = mean(v[ , , t+1]);
 
 	for(is in 1:length(s)) {
 		for(ipstar in 1:length(pstar)) {
@@ -110,18 +114,27 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			# part 3 vector
 			# TODO: need to represent g_tp1
 			# g_tp1 = 1 / pstar_tm1 - 1
-			g_tp1 = 0.0314 # g_tp1 = (1+0.07) * (1+d) - 1
+			# g_tp1 = 0.0314 # g_tp1 = (1+0.07) * (1+d) - 1
+			
+			# nomial capital gain return on stock follows binomial process
 			# (vector) gross nomial return from t to t+1 (paid dividend tax, but not paid capital gain tax)
-			R_tp1 = (ft * (1+(1-tau_d)*d) * (1+g_tp1) + (1+(1-tau_d)*r) * bt) / (ft + bt)
+			R_tp1_H = (ft * (1+(1-tau_d)*d) * (1+g_H) + (1+(1-tau_d)*r) * bt) / (ft + bt)
 			# vector 100x1
-			w_tp1 = (R_tp1 / (1+i)) * (1 - tau_g * deltat - ct)
+			w_tp1_H = ( (R_tp1_H / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
+			
+			R_tp1_T = (ft * (1+(1-tau_d)*d) * (1+g_T) + (1+(1-tau_d)*r) * bt) / (ft + bt)
+			# vector 100x1
+			w_tp1_T = ( (R_tp1_T / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
 
-			# w_{t+1} is independent of E_t[v_{t+1}(x_{t+1})] 
-			res3 = exp(-lambdat) * beta * Et_vtp1 * w_tp1^(1-gamma)
+			# (vector) calc expected t+1 value function (0.5*(scalar*vector + scalar*vector))
+			E_t = 0.5 * (mean(v[ , 1:ceiling(pstar_size/2), t+1]) * w_tp1_H + mean(v[ , (1+ceiling(pstar_size/2)):pstar_size, t+1]) * w_tp1_T)
+			# vector
+			res3 = exp(-lambdat) * beta * E_t
 
 			# update value function v
 			vt = res1 + res2 + res3
-			
+			# vt = res1 + res2
+
 			# print(max(vt))
 			# print(ipstar)
 
@@ -133,7 +146,10 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			f[is, ipstar, t] = ft[idx]
 			c[is, ipstar, t] = ct[idx]
 			b[is, ipstar, t] = bt[idx]
+			# TODO: optimal stock options always the same! 
 			optimal_stock_holding[is, ipstar, t] = ft[idx] / (ft[idx] + bt[idx])
+			print(ft[idx])
+			print(bt[idx])
 		}
 	}
 	print(t)
