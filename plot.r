@@ -5,9 +5,9 @@
 # NTIMELOW = 20
 # STEP = 10
 
-# load("res_1102.dat")
+# load("res_1109.dat")
 # print("load done")
-
+ 
 # save(s, pstar, v, f, c, b, optimal_stock_holding, file = "res_tiny.dat")
 
 # --- plot ---
@@ -15,7 +15,7 @@ library(rgl)
 
 
 tvec = seq(1, NTIMEUP-1, by=1)
-s_idx = round(0.2 / (1/NDIM)) + 1 
+s_idx = round(0.5 / (1/NDIM)) + 1 
 
 # xvec = rep(pstar, each=pstar_size)
 # yvec = rep(tvec, times=length(tvec))

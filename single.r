@@ -21,8 +21,8 @@ get_mortality_rate_vec = function() {
 # STEP = 10
 
 NDIM = 4
-NTIMEUP = 5
-NTIMELOW = 1
+NTIMEUP = 80
+NTIMELOW = 20
 STEP = 10
 
 #--- parameters ---
@@ -35,16 +35,19 @@ tau_g = 0.36 # tax rate on capital gain and losses
 beta = 0.96 # annual subjective discount factor
 gamma = 3.0 # risk aversion parameter
 # H very sensitive
+# H = 5
 H = NTIMEUP   # num of period of annuity for the benefit of investor's beneficiary 
-g_H = 1 # up factor - 1 (pretax nomial capital gain return)
-g_T = -0.5 # down factor - 1 (pretax nomial capital gain return)
+bmean = 1.07	# pretax nomial capital gain return binomial process mean
+bvar = 0.207^2	# pretax nomial capital gain return binomial process variance
+up = ( (1 + bmean^2 + bvar) + ((1 + bmean^2 + bvar)^2 - 4*bmean^2)^0.5 ) / (2*bmean) # up factor == g_H + 1 (pretax nomial capital gain return)
+probUp = (bmean - 1/up) / (up - 1/up) # probability of binomial process going up
 
 rstar = ((1-tau_d) * r - i) / (1 + i) # after tax real bond return 
-A_H = (rstar * (1+rstar)^H) / ((1+rstar)^H - 1) 
+A_H = (rstar * (1+rstar)^H) / ((1+rstar)^H - 1) # lim_H->\infty(A_H) = rstar
 
 # states xt
 s = seq(0, 1.0, by=1/NDIM)
-pstar = seq(0, 2.0, by=1/NDIM)
+pstar = seq(0, 2.0, by=2/NDIM)
 # s = seq(1/NDIM, 1.0, by=1/NDIM)
 # pstar = seq(1/NDIM, 2.0, by=1/NDIM)
 
@@ -72,6 +75,7 @@ optimal_stock_holding = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 
 # TODO: not yet included eq 13
 # v[st][pstar_tm1][t]
+# TODO: range
 for(t in seq(NTIMEUP-1, 1, by=-1)) {
 	lambdat = lambda[t + NTIMELOW] # lambda range [1, 100]
 
@@ -88,23 +92,34 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			# print(pstar_tm1)
 
 			# current policies: ft, bt, ct (vector)
-			# curbase = seq(1/STEP, 1, by=1/STEP)
 			curbase = seq(0, 1.0, by=1/STEP)
+			# curbase = seq(0, 1.0, by=1/STEP)
 			# generate each posible (ft[i], bt[i]) pair. Can calculate ct[i] using eq 14
 
-			# TODO ft == s_t+1! BUG!
 			ft = rep(curbase, each=STEP)
 			bt = rep(curbase, times=STEP)
-			valid_idx = ft + bt <= 1 & ft + bt > 0
-			ft = ft[valid_idx]
-			bt = bt[valid_idx]
 
-			# part 1 vector
+			# TODO: IMP, bt can < 0
+			# valid_idx = ft + bt <= 1 & ft + bt > 0
+			# ft = ft[valid_idx]
+			# bt = bt[valid_idx]
+
+			# part 1 vector, IMP: pmax instead of max, pmax returns a vector, while max returns a scalar 
 			# calc ct
 			# (vector) fraction of beginning-of-period wealth that is taxable as realized capital gain in period t
-			deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * max(st-ft, 0)) * (1 - pstar_tm1)
+			deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * pmax(st-ft, 0)) * (1 - pstar_tm1)
 			ct = 1 - tau_g * deltat - ft - bt
-			# print(ct)
+			# print(deltat)
+
+			# get valid exploration set
+			valid_idx = ft > 0 & ct > 0 
+			# valid_idx = ft > 0 # doesn't work
+			valid_idx[0] = FALSE # bt==ft==0
+			ct = ct[valid_idx]
+			ft = ft[valid_idx]
+			bt = bt[valid_idx]
+			deltat = deltat[valid_idx]
+			# print(deltat)
 
 			res1 = exp(-lambdat) * ct^(1-gamma) / (1-gamma)
 
@@ -118,25 +133,31 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			
 			# nomial capital gain return on stock follows binomial process
 			# (vector) gross nomial return from t to t+1 (paid dividend tax, but not paid capital gain tax)
-			R_tp1_H = (ft * (1+(1-tau_d)*d) * (1+g_H) + (1+(1-tau_d)*r) * bt) / (ft + bt)
+			R_tp1_H = (ft * (1+(1-tau_d)*d) * up + (1+(1-tau_d)*r) * bt) / (ft + bt)
 			# vector 100x1
 			w_tp1_H = ( (R_tp1_H / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
 			
-			R_tp1_T = (ft * (1+(1-tau_d)*d) * (1+g_T) + (1+(1-tau_d)*r) * bt) / (ft + bt)
+			R_tp1_T = (ft * (1+(1-tau_d)*d) * (1/up) + (1+(1-tau_d)*r) * bt) / (ft + bt)
 			# vector 100x1
 			w_tp1_T = ( (R_tp1_T / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
 
-			# (vector) calc expected t+1 value function (0.5*(scalar*vector + scalar*vector))
-			E_t = 0.5 * (mean(v[ , 1:ceiling(pstar_size/2), t+1]) * w_tp1_H + mean(v[ , (1+ceiling(pstar_size/2)):pstar_size, t+1]) * w_tp1_T)
+			# (vector) calc expected t+1 value function (probUp*scalar*vector + (1-probUp)*scalar*vector)
+			E_t = probUp * mean(v[ , 1:ceiling(pstar_size/2), t+1]) * w_tp1_H + (1-probUp) * mean(v[ , (1+ceiling(pstar_size/2)):pstar_size, t+1]) * w_tp1_T
 			# vector
 			res3 = exp(-lambdat) * beta * E_t
+			# print(res3)
 
 			# update value function v
 			vt = res1 + res2 + res3
-			# vt = res1 + res2
+			print("res3 ratio")
+			print(res3/vt)
+			# print("res")
+			# print(res1)
+			# print(res2)
+			# print(res3)
 
 			# print(max(vt))
-			# print(ipstar)
+			# print(vt)
 
 			# IMP: array indexing: v[i,j,k]. Not v[i][j][k]
 			v[is, ipstar, t] = max(vt)
@@ -148,6 +169,7 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			b[is, ipstar, t] = bt[idx]
 			# TODO: optimal stock options always the same! 
 			optimal_stock_holding[is, ipstar, t] = ft[idx] / (ft[idx] + bt[idx])
+			print("ft")
 			print(ft[idx])
 			print(bt[idx])
 		}
