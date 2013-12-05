@@ -79,10 +79,117 @@ f = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 b = array(0, dim=c(s_size, pstar_size, NTIMEUP))
 # optimal stock holding
 optimal_stock_holding = array(0, dim=c(s_size, pstar_size, NTIMEUP))
+# bequested wealth from parent (an annuity)
+wT = array(0, dim=c(s_size, pstar_size))
 
-# TODO: not yet included eq 13
-# v[st][pstar_tm1][t]
-# TODO: range
+# iterate only once to calc parent bequest wealth growth ratio
+t = NTIMEUP-1
+lambdat = lambda[t + NTIMELOW] # lambda range [1, 100]
+
+# calc wT (donor wealth ratio)
+for(is in 1:length(s)) {
+	for(ipstar in 1:length(pstar)) {
+		# current states: st, pstar_tm1 (scalar)
+		st = s[is]
+		pstar_tm1 = pstar[ipstar]
+
+		# print(pstar_tm1)
+
+		# current policies: ft, bt, ct (vector)
+		# curbase = seq(0, 1.0, by=1/STEP)
+		curbase = seq(1/STEP, 1.0, by=1/STEP)
+		# generate each posible (ft[i], bt[i]) pair. Can calculate ct[i] using eq 14
+
+		ft = rep(curbase, each=STEP)
+		bt = rep(curbase, times=STEP)
+
+		# TODO: IMP, bt can < 0
+		# valid_idx = ft + bt <= 1 & ft + bt > 0
+		# ft = ft[valid_idx]
+		# bt = bt[valid_idx]
+
+		# part 1 vector, IMP: pmax instead of max, pmax returns a vector, while max returns a scalar 
+		# calc ct
+		# (vector) fraction of beginning-of-period wealth that is taxable as realized capital gain in period t
+		deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * pmax(st-ft, 0)) * (1 - pstar_tm1)
+		ct = 1 - tau_g * deltat - ft - bt
+
+		# get valid exploration set
+		# valid_idx = ft > 0 & ct > 0 
+		valid_idx = ct > 0 
+		# valid_idx[0] = FALSE # bt==ft==0
+		ct = ct[valid_idx]
+		ft = ft[valid_idx]
+		bt = bt[valid_idx]
+		deltat = deltat[valid_idx]
+		# print("ft")
+		# print(ft)
+		# print("bt")
+		# print(bt)
+
+		res1 = exp(-lambdat) * ct^(1-gamma) / (1-gamma)
+
+		# part 2 scalar
+		res2 = ((1-exp(-lambdat)) * beta * (1-beta^H) * A_H^(1-gamma)) / ((1-beta) * (1-gamma))
+
+		# part 3 vector
+		# TODO: need to represent g_tp1
+		# g_tp1 = 1 / pstar_tm1 - 1
+		# g_tp1 = 0.0314 # g_tp1 = (1+0.07) * (1+d) - 1
+		
+		# nomial capital gain return on stock follows binomial process
+		# (vector) gross nomial return from t to t+1 (paid dividend tax, but not paid capital gain tax)
+		R_tp1_H = (ft * (1+(1-tau_d)*d) * up + (1+(1-tau_d)*r) * bt) / (ft + bt)
+		# vector 100x1
+		w_tp1_H = ( (R_tp1_H / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
+		
+		R_tp1_T = (ft * (1+(1-tau_d)*d) * (1/up) + (1+(1-tau_d)*r) * bt) / (ft + bt)
+		# vector 100x1
+		w_tp1_T = ( (R_tp1_T / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
+
+		# (vector) calc expected t+1 value function (probUp*scalar*vector + (1-probUp)*scalar*vector)
+		E_t = probUp * mean(v[ , 1:ceiling(pstar_size/2), t+1]) * w_tp1_H + (1-probUp) * mean(v[ , (1+ceiling(pstar_size/2)):pstar_size, t+1]) * w_tp1_T
+		# vector
+		res3 = exp(-lambdat) * beta * E_t
+		# print(res3)
+
+		# update value function v
+		vt = res1 + res2 + res3
+		# print("res3 ratio")
+		# print(res3/vt)
+		# print("res")
+		# print(res1)
+		# print(res2)
+		# print(res3)
+
+		# print(max(vt))
+		# print(vt)
+
+		# IMP: array indexing: v[i,j,k]. Not v[i][j][k]
+		v[is, ipstar, t] = max(vt)
+		# find the optimal policy
+		idx = which.max(vt)
+
+		# bequested wealth growth ratio from parent
+		wT[is, ipstar] = probUp * w_tp1_H[idx] + (1-probUp) * w_tp1_T[idx]
+		
+		print("res3 ratio")
+		print(res3[idx]/vt[idx])
+
+		f[is, ipstar, t] = ft[idx]
+		c[is, ipstar, t] = ct[idx]
+		b[is, ipstar, t] = bt[idx]
+
+		optimal_stock_holding[is, ipstar, t] = ft[idx] / (ft[idx] + bt[idx])
+		print("ft")
+		print(ft[idx])
+		print(bt[idx])
+	}
+}
+print("wT")
+print(wT)
+
+# iteration for children
 for(t in seq(NTIMEUP-1, 1, by=-1)) {
 	lambdat = lambda[t + NTIMELOW] # lambda range [1, 100]
 
@@ -96,7 +203,12 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			st = s[is]
 			pstar_tm1 = pstar[ipstar]
 
-			# print(pstar_tm1)
+			# receiver annuity ratio
+			at = A_H * wT[is, ipstar] / (1+i)^(t+1)
+			# A_H_child = (rstar * (1+rstar)^NTIMEUP) / ((1+rstar)^NTIMEUP - 1) 
+			# at = A_H_child * wT[is, ipstar] / (1+i)^t
+			print("at")
+			print(at)
 
 			# current policies: ft, bt, ct (vector)
 			# curbase = seq(0, 1.0, by=1/STEP)
@@ -115,7 +227,8 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			# calc ct
 			# (vector) fraction of beginning-of-period wealth that is taxable as realized capital gain in period t
 			deltat = ((pstar_tm1 > 1) * st + (pstar_tm1 <= 1) * pmax(st-ft, 0)) * (1 - pstar_tm1)
-			ct = 1 - tau_g * deltat - ft - bt
+			# allow more consumption (from parent's bequest)
+			ct = 1 - tau_g * deltat - ft - bt + at
 
 			# get valid exploration set
 			# valid_idx = ft > 0 & ct > 0 
@@ -144,11 +257,11 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 			# (vector) gross nomial return from t to t+1 (paid dividend tax, but not paid capital gain tax)
 			R_tp1_H = (ft * (1+(1-tau_d)*d) * up + (1+(1-tau_d)*r) * bt) / (ft + bt)
 			# vector 100x1
-			w_tp1_H = ( (R_tp1_H / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
+			w_tp1_H = ( (R_tp1_H / (1+i)) * (1 - tau_g * deltat - ct + at) )^(1-gamma)
 			
 			R_tp1_T = (ft * (1+(1-tau_d)*d) * (1/up) + (1+(1-tau_d)*r) * bt) / (ft + bt)
 			# vector 100x1
-			w_tp1_T = ( (R_tp1_T / (1+i)) * (1 - tau_g * deltat - ct) )^(1-gamma)
+			w_tp1_T = ( (R_tp1_T / (1+i)) * (1 - tau_g * deltat - ct + at) )^(1-gamma)
 
 			# (vector) calc expected t+1 value function (probUp*scalar*vector + (1-probUp)*scalar*vector)
 			E_t = probUp * mean(v[ , 1:ceiling(pstar_size/2), t+1]) * w_tp1_H + (1-probUp) * mean(v[ , (1+ceiling(pstar_size/2)):pstar_size, t+1]) * w_tp1_T
@@ -192,7 +305,7 @@ for(t in seq(NTIMEUP-1, 1, by=-1)) {
 
 all_time = proc.time() - ptm
 print(all_time)
-save(s, pstar, v, f, c, b, optimal_stock_holding, file = "res_tiny.dat")
+save(s, pstar, v, f, c, b, optimal_stock_holding, file = "res_tiny_children.dat")
 
 
 # --- plot ---
